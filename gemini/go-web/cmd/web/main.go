@@ -77,7 +77,7 @@ func generateHandler(w http.ResponseWriter, r *http.Request, client *genai.Clien
 		for _, cand := range result.Candidates {
 			if cand.Content != nil {
 				for _, part := range cand.Content.Parts {
-					fmt.Fprint(w, part)
+					fmt.Fprint(w, part.Text)
 				}
 			}
 		}
