@@ -10,9 +10,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/google/generative-ai-go/genai"
-	"google.golang.org/api/iterator"
-	"google.golang.org/api/option"
+	"google.golang.org/genai"
 )
 
 // 🔥 FILL THIS OUT FIRST! 🔥
@@ -35,43 +33,57 @@ var (
 	addr = flag.String("addr", "localhost:8080", "address to serve")
 )
 
-func generateHandler(w http.ResponseWriter, r *http.Request, model *genai.GenerativeModel) {
+func generateHandler(w http.ResponseWriter, r *http.Request, client *genai.Client) {
 	if apiKey == "TODO" {
 		http.Error(w, "Error: To get started, get an API key at https://makersuite.google.com/app/apikey and enter it in cmd/web/main.go and then hard restart the preview", http.StatusInternalServerError)
 		return
 	}
 
 	image, prompt := r.FormValue("chosen-image"), r.FormValue("prompt")
-	contents, err := os.ReadFile(filepath.Join("static", "images", filepath.Base(image)))
+	imageBytes, err := os.ReadFile(filepath.Join("static", "images", filepath.Base(image)))
 	if err != nil {
 		log.Printf("Unable to read image %s: %v\n", image, err)
 		http.Error(w, "Error: unable to generate content", http.StatusInternalServerError)
 		return
 	}
+	
+	 parts := []*genai.Part{
+		genai.NewPartFromBytes(imageBytes, "image/jpeg"),
+		genai.NewPartFromText(prompt),
+	  }
+	  
+	  contents := []*genai.Content{
+		genai.NewContentFromParts(parts, genai.RoleUser),
+	  }
 
 	// Generate the response and aggregate the streamed response.
-	iter := model.GenerateContentStream(r.Context(), genai.Text(prompt), genai.ImageData("jpeg", contents))
-	for {
-		resp, err := iter.Next()
-		if err == iterator.Done {
-			break
-		}
+	for result, err := range client.Models.GenerateContentStream(
+		r.Context(),
+		"gemini-2.0-flash",
+		contents,
+		&genai.GenerateContentConfig{
+			SafetySettings: []*genai.SafetySetting{
+				{
+					Category:  genai.HarmCategoryHarassment,
+					Threshold: genai.HarmBlockThresholdBlockOnlyHigh,
+				},
+			},
+		},
+	
+	) {
 		if err != nil {
-			log.Printf("Error generating content: %v\n", err)
-			http.Error(w, "Error: unable to generate content", http.StatusInternalServerError)
-			return
+			log.Println(err)
 		}
-		if resp == nil {
-			continue
-		}
-		for _, cand := range resp.Candidates {
+		for _, cand := range result.Candidates {
 			if cand.Content != nil {
 				for _, part := range cand.Content.Parts {
 					fmt.Fprint(w, part)
 				}
 			}
 		}
+		
 	}
+
 }
 
 type Page struct {
@@ -114,24 +126,18 @@ func main() {
 	if key := os.Getenv("API_KEY"); key != "" {
 		apiKey = key
 	}
-
-	client, err := genai.NewClient(context.Background(), option.WithAPIKey(apiKey))
+	ctx := context.Background()
+	client, err := genai.NewClient(ctx, &genai.ClientConfig{
+		APIKey:   apiKey,
+	})
 	if err != nil {
 		log.Println(err)
-	}
-	defer client.Close()
-	model := client.GenerativeModel("gemini-1.5-flash") // or gemini-1.5-pro
-	model.SafetySettings = []*genai.SafetySetting{
-		{
-			Category:  genai.HarmCategoryHarassment,
-			Threshold: genai.HarmBlockOnlyHigh,
-		},
 	}
 
 	// Serve static files and handle API requests.
 	fs := http.FileServer(http.Dir("static"))
 	http.Handle("/static/", http.StripPrefix("/static/", fs))
-	http.HandleFunc("/api/generate", func(w http.ResponseWriter, r *http.Request) { generateHandler(w, r, model) })
+	http.HandleFunc("/api/generate", func(w http.ResponseWriter, r *http.Request) { generateHandler(w, r, client) })
 	http.HandleFunc("/", indexHandler)
 	log.Fatal(http.ListenAndServe(*addr, nil))
 }
