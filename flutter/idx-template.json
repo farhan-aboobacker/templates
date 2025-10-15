@@ -1,0 +1,20 @@
+{
+    "name": "Flutter",
+    "description": "Create a flutter application",
+    "categories": [
+        "Mobile"
+    ],
+    "icon": "https://www.gstatic.com/images/branding/productlogos/flutter/v6/192px.svg",
+    "publisher": "Google LLC",
+    "host": {
+        "virtualization": true
+    },
+    "params": [
+        {
+            "id": "bundleid",
+            "name": "Reverse domain identifier for your app package (e.g. com.example)",
+            "type": "text",
+            "required": true
+        }
+    ]
+}
